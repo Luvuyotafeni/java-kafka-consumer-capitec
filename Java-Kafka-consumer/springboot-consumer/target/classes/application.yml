@@ -1,0 +1,96 @@
+spring:
+  application:
+    name: springboot-payment-consumer
+
+  kafka:
+    bootstrap-servers: localhost:30092,localhost:30093,localhost:30094
+
+    consumer:
+      # ── Identity ──────────────────────────────────────────────────────────────
+      # Consumer group ID — all instances sharing this ID form one group.
+      # Kafka distributes partitions across the group; each partition is
+      # consumed by exactly one member at a time.
+      group-id: payment-initiated-consumer-group
+
+      # ── Offset behaviour ──────────────────────────────────────────────────────
+      # earliest: on first start (no committed offset exists) read from the
+      # beginning of the topic — ensures no messages are missed on cold start.
+      # latest: only read new messages. Use this if you don't want historical data.
+      auto-offset-reset: earliest
+
+      # ── Manual offset commit ──────────────────────────────────────────────────
+      # NEVER use auto-commit in production. With auto-commit, the offset is
+      # committed on a timer regardless of whether your processing succeeded.
+      # A crash between commit and processing = silent message loss.
+      # We commit manually AFTER successful processing (see PaymentConsumerService).
+      enable-auto-commit: false
+
+      # ── Deserialisation ───────────────────────────────────────────────────────
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+
+      properties:
+        # Tell the JsonDeserializer which class to deserialise the value into.
+        spring.json.value.default.type: com.payments.consumer.model.PaymentInitiatedEvent
+
+        # Trust the package so the deserializer doesn't reject the class.
+        spring.json.trusted.packages: "com.payments.consumer.model,com.payments.events"
+
+        # ── Fetch tuning ─────────────────────────────────────────────────────
+        # Maximum bytes fetched per partition per request.
+        # Increase if you process large messages; default 1MB is fine for payments.
+        max.partition.fetch.bytes: 1048576
+
+        # Maximum total bytes fetched across all partitions per request.
+        fetch.max.bytes: 52428800
+
+        # Minimum bytes the broker must have before responding to a fetch.
+        # 1 byte = respond as soon as any data is available (low latency).
+        # Increase to reduce broker CPU at the cost of slightly higher latency.
+        fetch.min.bytes: 1
+
+        # Max time the broker waits to accumulate fetch.min.bytes before
+        # responding. 500 ms is a sensible default.
+        fetch.max.wait.ms: 500
+
+        # ── Session & heartbeat ───────────────────────────────────────────────
+        # If the broker doesn't receive a heartbeat within session.timeout.ms
+        # it considers the consumer dead and triggers a rebalance.
+        session.timeout.ms: 45000
+
+        # Heartbeat interval — should be ~1/3 of session.timeout.ms.
+        heartbeat.interval.ms: 15000
+
+        # Max time between poll() calls before the consumer is considered dead.
+        # If your processing takes longer than this, increase it or process async.
+        max.poll.interval.ms: 300000
+
+        # Max records returned per poll(). Tune down if processing is slow
+        # to avoid max.poll.interval.ms timeouts.
+        max.poll.records: 10
+
+    listener:
+      # MANUAL_IMMEDIATE: acknowledge (commit offset) immediately when
+      # Acknowledgment.acknowledge() is called in the listener.
+      # This gives us full control — we commit only after successful processing.
+      ack-mode: MANUAL_IMMEDIATE
+
+      # Number of concurrent listener threads. Each thread handles one
+      # partition. Set to match the number of topic partitions for full parallelism.
+      concurrency: 1
+
+      # Log the container lifecycle events — useful for debugging rebalances.
+      log-container-config: true
+
+topic:
+  payment-initiated: payment-initiated
+  payment-initiated-dlt: payment-initiated.dlt
+
+server:
+  port: 8082
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
